@@ -1746,6 +1746,9 @@ Expected<bool> GenericPluginTy::checkBitcodeImage(StringRef Image) const {
 
 int32_t GenericPluginTy::is_initialized() const { return Initialized; }
 
+// 定义自定义头部字符串
+static StringRef SylphImageHeader = "#SYLPH_IMAGE_V1#";
+
 int32_t GenericPluginTy::is_plugin_compatible(__tgt_device_image *Image) {
   StringRef Buffer(reinterpret_cast<const char *>(Image->ImageStart),
                    utils::getPtrDiff(Image->ImageEnd, Image->ImageStart));
@@ -1755,25 +1758,40 @@ int32_t GenericPluginTy::is_plugin_compatible(__tgt_device_image *Image) {
     DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
     return false;
   };
-  switch (identify_magic(Buffer)) {
-  case file_magic::elf:
-  case file_magic::elf_relocatable:
-  case file_magic::elf_executable:
-  case file_magic::elf_shared_object:
-  case file_magic::elf_core: {
-    auto MatchOrErr = checkELFImage(Buffer);
-    if (Error Err = MatchOrErr.takeError())
-      return HandleError(std::move(Err));
-    return *MatchOrErr;
-  }
-  case file_magic::bitcode: {
-    auto MatchOrErr = checkBitcodeImage(Buffer);
-    if (Error Err = MatchOrErr.takeError())
-      return HandleError(std::move(Err));
-    return *MatchOrErr;
-  }
-  default:
-    return false;
+
+  // 检查是否为 SYLPH plugin
+  if (strcmp(getName(), "SYLPH") == 0) {
+    // 如果是 SYLPH plugin，检查 image buffer 是否以自定义头部开头
+    if (Buffer.size() >= SylphImageHeader.size() && // Add size check
+        Buffer.substr(0, SylphImageHeader.size()).compare(SylphImageHeader) == 0) { // Use substr and compare
+      DP("SYLPH plugin: Image starts with custom header. Compatible.\n");
+      return true; // 以自定义头部开头，认为是 SYLPH image
+    } else {
+      DP("SYLPH plugin: Image does NOT start with custom header. Not compatible.\n");
+      return false; // 不是 SYLPH image
+    }
+  } else {
+    // 对于非 SYLPH plugin，执行标准的 ELF/Bitcode 检查
+    switch (identify_magic(Buffer)) {
+    case file_magic::elf:
+    case file_magic::elf_relocatable:
+    case file_magic::elf_executable:
+    case file_magic::elf_shared_object:
+    case file_magic::elf_core: {
+      auto MatchOrErr = checkELFImage(Buffer);
+      if (Error Err = MatchOrErr.takeError())
+        return HandleError(std::move(Err));
+      return *MatchOrErr;
+    }
+    case file_magic::bitcode: {
+      auto MatchOrErr = checkBitcodeImage(Buffer);
+      if (Error Err = MatchOrErr.takeError())
+        return HandleError(std::move(Err));
+      return *MatchOrErr;
+    }
+    default:
+      return false;
+    }
   }
 }
 
@@ -1787,32 +1805,49 @@ int32_t GenericPluginTy::is_device_compatible(int32_t DeviceId,
     DP("Failure to check validity of image %p: %s", Image, ErrStr.c_str());
     return false;
   };
-  switch (identify_magic(Buffer)) {
-  case file_magic::elf:
-  case file_magic::elf_relocatable:
-  case file_magic::elf_executable:
-  case file_magic::elf_shared_object:
-  case file_magic::elf_core: {
-    auto MatchOrErr = checkELFImage(Buffer);
-    if (Error Err = MatchOrErr.takeError())
-      return HandleError(std::move(Err));
-    if (!*MatchOrErr)
-      return false;
 
-    // Perform plugin-dependent checks for the specific architecture if needed.
-    auto CompatibleOrErr = isELFCompatible(DeviceId, Buffer);
-    if (Error Err = CompatibleOrErr.takeError())
-      return HandleError(std::move(Err));
-    return *CompatibleOrErr;
-  }
-  case file_magic::bitcode: {
-    auto MatchOrErr = checkBitcodeImage(Buffer);
-    if (Error Err = MatchOrErr.takeError())
-      return HandleError(std::move(Err));
-    return *MatchOrErr;
-  }
-  default:
-    return false;
+  // 检查是否为 SYLPH plugin
+  if (strcmp(getName(), "SYLPH") == 0) {
+    // 如果是 SYLPH plugin，检查 image buffer 是否以自定义头部开头
+     if (Buffer.size() >= SylphImageHeader.size() && // Add size check
+         Buffer.substr(0, SylphImageHeader.size()).compare(SylphImageHeader) == 0) { // Use substr and compare
+        DP("SYLPH plugin: Image starts with custom header. Device compatible.\n");
+        // 如果 SYLPH Plugin 需要特定的设备兼容性检查，可以在这里添加
+        // 例如： return isSYLPHDeviceCompatibleImpl(DeviceId, Image);
+        return true; // 以自定义头部开头，认为是 SYLPH device image
+     } else {
+        DP("SYLPH plugin: Image does NOT start with custom header. Device not compatible.\n");
+        return false; // 不是 SYLPH device image
+     }
+  } else {
+    // 对于非 SYLPH plugin，执行标准的 ELF/Bitcode 检查
+    switch (identify_magic(Buffer)) {
+    case file_magic::elf:
+    case file_magic::elf_relocatable:
+    case file_magic::elf_executable:
+    case file_magic::elf_shared_object:
+    case file_magic::elf_core: {
+      auto MatchOrErr = checkELFImage(Buffer);
+      if (Error Err = MatchOrErr.takeError())
+        return HandleError(std::move(Err));
+      if (!*MatchOrErr)
+        return false;
+
+      // Perform plugin-dependent checks for the specific architecture if needed.
+      auto CompatibleOrErr = isELFCompatible(DeviceId, Buffer);
+      if (Error Err = CompatibleOrErr.takeError())
+        return HandleError(std::move(Err));
+      return *CompatibleOrErr;
+    }
+    case file_magic::bitcode: {
+      auto MatchOrErr = checkBitcodeImage(Buffer);
+      if (Error Err = MatchOrErr.takeError())
+        return HandleError(std::move(Err));
+      return *MatchOrErr;
+    }
+    default:
+      return false;
+    }
   }
 }
 

@@ -80,6 +80,7 @@ add_clang_library(clangDriver
   ToolChains/SPIRV.cpp
   ToolChains/SPIRVOpenMP.cpp
   ToolChains/SYCL.cpp
+  ToolChains/Sylph.cpp
   ToolChains/TCE.cpp
   ToolChains/UEFI.cpp
   ToolChains/VEToolchain.cpp

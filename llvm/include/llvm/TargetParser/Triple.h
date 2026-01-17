@@ -197,6 +197,7 @@ public:
     SUSE,
     OpenEmbedded,
     Intel,
+    Nuvoton,
     LastVendorType = Intel
   };
   enum OSType {
