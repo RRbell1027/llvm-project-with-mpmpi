@@ -2954,10 +2954,6 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
     llvm::StringMap<bool> FeatureMap;
     getContext().getFunctionFeatureMap(FeatureMap, GD);
 
-    // Produce the canonical string for this set of features.
-    for (const llvm::StringMap<bool>::value_type &Entry : FeatureMap)
-      Features.push_back((Entry.getValue() ? "+" : "-") + Entry.getKey().str());
-
     // Now add the target-cpu and target-features to the function.
     // While we populated the feature map above, we still need to
     // get and parse the target attribute so we can get the cpu for
@@ -2980,10 +2976,42 @@ bool CodeGenModule::GetCPUAndFeaturesAttributes(GlobalDecl GD,
       // favor this processor.
       TuneCPU = SD->getCPUName(GD.getMultiVersionIndex())->getName();
     }
+
+    // For AMDGPU, by default only emit delta features (features that differ
+    // from the target CPU's defaults). Use -famdgpu-emit-full-target-features
+    // to emit all features.
+    if (getTarget().getTriple().isAMDGPU() &&
+        !CodeGenOpts.AMDGPUEmitFullTargetFeatures) {
+      // Get the default feature map for the (possibly overridden) target CPU.
+      llvm::StringMap<bool> DefaultFeatureMap;
+      getTarget().initFeatureMap(DefaultFeatureMap,
+                                 getContext().getDiagnostics(), TargetCPU, {});
+
+      // Only emit features that differ from the defaults.
+      for (const auto &Entry : FeatureMap) {
+        auto DefaultIt = DefaultFeatureMap.find(Entry.getKey());
+        // Emit if the feature is not in defaults or has a different value.
+        if (DefaultIt == DefaultFeatureMap.end() ||
+            DefaultIt->getValue() != Entry.getValue())
+          Features.push_back((Entry.getValue() ? "+" : "-") +
+                             Entry.getKey().str());
+      }
+    } else {
+      // Produce the canonical string for this set of features.
+      for (const llvm::StringMap<bool>::value_type &Entry : FeatureMap)
+        Features.push_back((Entry.getValue() ? "+" : "-") +
+                           Entry.getKey().str());
+    }
   } else {
     // Otherwise just add the existing target cpu and target features to the
     // function.
-    Features = getTarget().getTargetOpts().Features;
+    // For AMDGPU, by default we don't emit target-features for functions
+    // without explicit target attributes, as the backend can derive the
+    // features from target-cpu. Use -famdgpu-emit-full-target-features to emit
+    // all features.
+    if (!getTarget().getTriple().isAMDGPU() ||
+        CodeGenOpts.AMDGPUEmitFullTargetFeatures)
+      Features = getTarget().getTargetOpts().Features;
   }
 
   if (!TargetCPU.empty()) {
